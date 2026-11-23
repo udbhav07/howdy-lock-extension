@@ -1,6 +1,6 @@
-# presence-guard
+# howdy-lock-extension
 
-Keeps a Linux laptop awake while **you** are sitting in front of it, and lets it sleep when you're gone.
+`presence-guard` keeps a Linux laptop awake while **you** are sitting in front of it, and lets it sleep when you're gone.
 
 When the laptop has been idle for a while, it checks the IR camera with your [Howdy](https://github.com/boltgolt/howdy) face model:
 

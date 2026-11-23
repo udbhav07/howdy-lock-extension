@@ -1,22 +1,25 @@
 # howdy-lock-extension
 
-`presence-guard` keeps a Linux laptop unlocked while **you** are sitting in front of it, and locks the screen when you're gone.
+`presence-guard` stops KDE from auto-locking your screen while **you** are sitting in front of it.
 
-When the laptop has been idle for a while, it checks the IR camera with your [Howdy](https://github.com/boltgolt/howdy) face model:
+It only steps in at one moment: just before KDE's idle auto-lock fires. It checks the IR camera against your [Howdy](https://github.com/boltgolt/howdy) face model:
 
 | Who is in front of the camera | What happens |
 |---|---|
-| you | stays unlocked and awake, checks again every 5 min |
-| someone else, or nobody | locks the screen |
+| you | KDE's lock timer restarts, as if you'd touched the mouse |
+| someone else, or nobody | nothing: KDE locks on schedule |
+| camera busy (e.g. in a meeting) | nothing: KDE behaves normally |
 
-Any keyboard or mouse activity stops the check until you're idle again.
+presence-guard never locks the screen itself, so turning it off leaves KDE exactly as it was.
+
+- **Timing comes from KDE:** the check runs 15 s before your auto-lock time (System Settings → Screen Locking). Change that setting, then restart the service: `systemctl --user restart presence-guard`.
+- **Meetings and videos:** apps that block idle (meeting apps, video players) stop KDE's countdown, so presence-guard never runs.
 
 ## Requirements
 
 - Howdy installed and working, with your face added (`sudo howdy add`)
-- A Wayland compositor with `ext-idle-notify` (tested on KDE Plasma 6, Fedora 44)
+- KDE Plasma 6 on Wayland (tested on Fedora 44)
 - `swayidle` (`sudo dnf install swayidle`)
-- `kde-inhibit` (ships with Plasma) to stop KDE's own idle sleep while you're there
 
 It reuses Howdy's settings: the camera (`device_path`), match strictness (`certainty`), and dlib models.
 
@@ -31,15 +34,11 @@ systemctl --user enable --now presence-guard
 ## Usage
 
 ```bash
-presence-guard check   # one look: prints owner / stranger / nobody
+presence-guard check   # one look: prints owner / stranger / nobody / busy
 ```
-
-- Idle time before the check: the `900` (seconds) in `presence-guard.service`
-- Recheck interval and look duration: constants at the top of `presence-guard`
 
 Stop it with `systemctl --user disable --now presence-guard`.
 
 ## Notes
 
-- If the camera is busy (e.g. Howdy at the lock screen), the check counts as "nobody" and the screen locks.
 - Your face model stays in `/etc/howdy/models/` and is never copied into this repo.

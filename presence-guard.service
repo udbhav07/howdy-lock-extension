@@ -1,10 +1,10 @@
 [Unit]
-Description=Stay awake while you are in front of the IR camera (presence-guard)
+Description=Stay unlocked while you are in front of the IR camera (presence-guard)
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
-# After 15 min idle, look for a face: present -> stay awake, absent -> suspend.
+# After 15 min idle, look for a face: you -> stay unlocked, anyone else or nobody -> lock screen.
 # Any keyboard/mouse activity stops the check.
 ExecStart=/usr/bin/swayidle timeout 900 '%h/.local/bin/presence-guard' resume 'pkill -TERM -f "/presence-guard$"'
 Restart=on-failure

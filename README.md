@@ -1,13 +1,13 @@
 # howdy-lock-extension
 
-`presence-guard` keeps a Linux laptop awake while **you** are sitting in front of it, and lets it sleep when you're gone.
+`presence-guard` keeps a Linux laptop unlocked while **you** are sitting in front of it, and locks the screen when you're gone.
 
 When the laptop has been idle for a while, it checks the IR camera with your [Howdy](https://github.com/boltgolt/howdy) face model:
 
 | Who is in front of the camera | What happens |
 |---|---|
-| you | stays awake, checks again every 5 min |
-| someone else, or nobody | suspends |
+| you | stays unlocked and awake, checks again every 5 min |
+| someone else, or nobody | locks the screen |
 
 Any keyboard or mouse activity stops the check until you're idle again.
 
@@ -41,5 +41,5 @@ Stop it with `systemctl --user disable --now presence-guard`.
 
 ## Notes
 
-- If the camera is busy (e.g. Howdy at the lock screen), the check counts as "nobody" and the laptop sleeps.
+- If the camera is busy (e.g. Howdy at the lock screen), the check counts as "nobody" and the screen locks.
 - Your face model stays in `/etc/howdy/models/` and is never copied into this repo.

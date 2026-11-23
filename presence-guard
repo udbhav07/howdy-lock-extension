@@ -1,8 +1,8 @@
 #!/usr/bin/python3
-"""Keep the laptop awake while *you* (your Howdy face model) are in front of the IR camera.
+"""Keep the laptop unlocked while *you* (your Howdy face model) are in front of the IR camera.
 
 Run by swayidle after the idle timeout (see presence-guard.service):
-  presence-guard        loop: you seen -> stay awake and recheck, otherwise -> suspend
+  presence-guard        loop: you seen -> stay unlocked and recheck, otherwise -> lock screen
   presence-guard check  one look, prints owner/stranger/nobody, exit 0 only for owner
 """
 import configparser
@@ -38,7 +38,7 @@ def look():
     """Return "owner", "stranger" (a face that isn't you), or "nobody"."""
     cam = cv2.VideoCapture(CAMERA, cv2.CAP_V4L2)
     if not cam.isOpened():
-        return "nobody"  # camera busy or missing: fall back to normal sleep
+        return "nobody"  # camera busy or missing: lock to be safe
     seen = "nobody"
     end = time.monotonic() + LOOK_SECONDS
     try:
@@ -61,7 +61,7 @@ def look():
 
 
 def guard():
-    # While you're present, block KDE's own idle-sleep too, so it can't suspend under you.
+    # While you're present, block KDE's own idle-sleep too, so it can't sleep under you.
     inhibitor = subprocess.Popen(["kde-inhibit", "--power", "sleep", "infinity"])
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # swayidle kills us when you touch the laptop
     try:
@@ -69,7 +69,7 @@ def guard():
             time.sleep(RECHECK_SECONDS)
     finally:
         inhibitor.terminate()
-    subprocess.run(["systemctl", "suspend"])
+    subprocess.run(["loginctl", "lock-session"])
 
 
 if __name__ == "__main__":

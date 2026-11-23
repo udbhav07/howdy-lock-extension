@@ -8,7 +8,7 @@ It only steps in at one moment: just before KDE's idle auto-lock fires. It check
 |---|---|
 | you | KDE's lock timer restarts, as if you'd touched the mouse |
 | someone else, or nobody | nothing: KDE locks on schedule |
-| camera busy (e.g. in a meeting) | nothing: KDE behaves normally |
+| camera busy (e.g. in a meeting) | KDE's lock timer restarts: no lock while another app uses the camera |
 
 presence-guard never locks the screen itself, so turning it off leaves KDE exactly as it was.
 

@@ -1,0 +1,80 @@
+#!/usr/bin/python3
+"""Keep the laptop awake while *you* (your Howdy face model) are in front of the IR camera.
+
+Run by swayidle after the idle timeout (see presence-guard.service):
+  presence-guard        loop: you seen -> stay awake and recheck, otherwise -> suspend
+  presence-guard check  one look, prints owner/stranger/nobody, exit 0 only for owner
+"""
+import configparser
+import getpass
+import json
+import signal
+import subprocess
+import sys
+import time
+
+import cv2
+import dlib
+import numpy as np
+
+LOOK_SECONDS = 3       # how long to look per check
+RECHECK_SECONDS = 300  # while you're there, look again this often
+DARK_MEAN = 10         # skip near-black frames (IR emitter still warming up)
+MAX_HEIGHT = 320       # Howdy's max_height: frames are scaled to this before matching
+DLIB_DATA = "/usr/share/howdy/dlib-data/"
+
+howdy = configparser.ConfigParser()
+howdy.read("/etc/howdy/config.ini")
+CAMERA = howdy.get("video", "device_path")  # the IR camera Howdy uses
+CERTAINTY = howdy.getfloat("video", "certainty", fallback=3.5) / 10  # same scale Howdy uses
+
+encodings = np.array([d for m in json.load(open(f"/etc/howdy/models/{getpass.getuser()}.dat")) for d in m["data"]])
+detector = dlib.get_frontal_face_detector()
+predictor = dlib.shape_predictor(DLIB_DATA + "shape_predictor_5_face_landmarks.dat")
+encoder = dlib.face_recognition_model_v1(DLIB_DATA + "dlib_face_recognition_resnet_model_v1.dat")
+
+
+def look():
+    """Return "owner", "stranger" (a face that isn't you), or "nobody"."""
+    cam = cv2.VideoCapture(CAMERA, cv2.CAP_V4L2)
+    if not cam.isOpened():
+        return "nobody"  # camera busy or missing: fall back to normal sleep
+    seen = "nobody"
+    end = time.monotonic() + LOOK_SECONDS
+    try:
+        while time.monotonic() < end:
+            ok, frame = cam.read()
+            if not ok or frame.mean() < DARK_MEAN:
+                continue
+            scale = MAX_HEIGHT / frame.shape[0]
+            if scale < 1:
+                frame = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+            for face in detector(gray, 1):
+                encoding = np.array(encoder.compute_face_descriptor(frame, predictor(frame, face), 1))
+                if np.linalg.norm(encodings - encoding, axis=1).min() < CERTAINTY:
+                    return "owner"
+                seen = "stranger"
+    finally:
+        cam.release()
+    return seen
+
+
+def guard():
+    # While you're present, block KDE's own idle-sleep too, so it can't suspend under you.
+    inhibitor = subprocess.Popen(["kde-inhibit", "--power", "sleep", "infinity"])
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # swayidle kills us when you touch the laptop
+    try:
+        while look() == "owner":
+            time.sleep(RECHECK_SECONDS)
+    finally:
+        inhibitor.terminate()
+    subprocess.run(["systemctl", "suspend"])
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["check"]:
+        result = look()
+        print(result)
+        sys.exit(0 if result == "owner" else 1)
+    guard()

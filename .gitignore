@@ -1,0 +1,9 @@
+# Face models and camera snapshots are biometric data: never commit them
+*.dat
+*.jpg
+*.png
+snapshots/
+
+__pycache__/
+*.pyc
+.env

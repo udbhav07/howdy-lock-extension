@@ -87,10 +87,18 @@ def look():
     return seen
 
 
+def screensaver(method):
+    return subprocess.run(["gdbus", "call", "--session", "-d", "org.freedesktop.ScreenSaver", "-o", "/ScreenSaver",
+                           "-m", f"org.freedesktop.ScreenSaver.{method}"], capture_output=True, text=True).stdout
+
+
 def report_activity():
     # Same as touching the mouse: KDE restarts its auto-lock (and sleep) timers.
-    subprocess.run(["gdbus", "call", "--session", "-d", "org.freedesktop.ScreenSaver", "-o", "/ScreenSaver",
-                    "-m", "org.freedesktop.ScreenSaver.SimulateUserActivity"], capture_output=True)
+    screensaver("SimulateUserActivity")
+
+
+def screen_locked():
+    return screensaver("GetActive").startswith("(true")
 
 
 def watch():
@@ -109,7 +117,8 @@ if __name__ == "__main__":
         print(result)
         sys.exit(0 if result == "owner" else 1)
     if mode == ["idle"]:
-        if look() in ("owner", "busy"):  # busy: camera in use (e.g. a meeting), so you're likely here
+        # Idle time keeps counting on the lock screen; there's no auto-lock left to stop, so don't touch the camera.
+        if not screen_locked() and look() in ("owner", "busy"):  # busy: camera in use (e.g. a meeting), so you're likely here
             report_activity()
     else:
         watch()

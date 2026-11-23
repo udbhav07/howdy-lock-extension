@@ -41,5 +41,6 @@ Stop it with `systemctl --user disable --now presence-guard`.
 
 ## Notes
 
+- On the lock screen presence-guard never uses the camera. If the camera turns on there, it is Howdy (you pressed Enter or clicked unlock).
 - If an app leaves a camera open by mistake (camera light stays on), the screen won't auto-lock until it's closed. Meta+L always locks.
 - Your face model stays in `/etc/howdy/models/` and is never copied into this repo.

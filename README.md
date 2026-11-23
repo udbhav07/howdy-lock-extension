@@ -8,7 +8,7 @@ It only steps in at one moment: just before KDE's idle auto-lock fires. It check
 |---|---|
 | you | KDE's lock timer restarts, as if you'd touched the mouse |
 | someone else, or nobody | nothing: KDE locks on schedule |
-| camera busy (e.g. in a meeting) | KDE's lock timer restarts: no lock while another app uses the camera |
+| any camera in use by another app (e.g. a meeting) | KDE's lock timer restarts, no face check: no lock while a camera is in use |
 
 presence-guard never locks the screen itself, so turning it off leaves KDE exactly as it was.
 
@@ -41,4 +41,5 @@ Stop it with `systemctl --user disable --now presence-guard`.
 
 ## Notes
 
+- If an app leaves a camera open by mistake (camera light stays on), the screen won't auto-lock until it's closed. Meta+L always locks.
 - Your face model stays in `/etc/howdy/models/` and is never copied into this repo.

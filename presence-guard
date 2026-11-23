@@ -9,6 +9,7 @@ presence-guard never locks anything itself: if it isn't you, KDE simply locks on
 """
 import configparser
 import getpass
+import glob
 import json
 import os
 import subprocess
@@ -32,8 +33,21 @@ def kde_lock_seconds():
     return int(read("Timeout", "5")) * 60  # KDE stores minutes, default 5
 
 
+def camera_in_use():
+    """True if another of your apps (meeting, browser, PipeWire...) has any camera open."""
+    for fd in glob.glob("/proc/[0-9]*/fd/*"):
+        try:
+            if os.readlink(fd).startswith("/dev/video") and fd.split("/")[2] != str(os.getpid()):
+                return True
+        except OSError:
+            pass  # process exited, or not ours (e.g. Howdy running as root)
+    return False
+
+
 def look():
-    """Return "owner", "stranger" (a face that isn't you), "nobody", or "busy" (camera unavailable)."""
+    """Return "owner", "stranger" (a face that isn't you), "nobody", or "busy" (a camera is in use)."""
+    if camera_in_use():
+        return "busy"
     import cv2
     import dlib
     import numpy as np

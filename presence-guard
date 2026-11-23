@@ -1,50 +1,63 @@
 #!/usr/bin/python3
-"""Keep the laptop unlocked while *you* (your Howdy face model) are in front of the IR camera.
+"""Stop KDE's idle auto-lock while *you* (your Howdy face model) are in front of the IR camera.
 
-Run by swayidle after the idle timeout (see presence-guard.service):
-  presence-guard        loop: you seen -> stay unlocked and recheck, otherwise -> lock screen
-  presence-guard check  one look, prints owner/stranger/nobody, exit 0 only for owner
+  presence-guard        watch: run swayidle so `idle` fires just before KDE's auto-lock
+  presence-guard idle   look once; if it's you, report user activity so KDE restarts its lock timer
+  presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
+
+presence-guard never locks anything itself: if it isn't you, KDE simply locks on schedule.
 """
 import configparser
 import getpass
 import json
-import signal
+import os
 import subprocess
 import sys
 import time
 
-import cv2
-import dlib
-import numpy as np
-
-LOOK_SECONDS = 3       # how long to look per check
-RECHECK_SECONDS = 300  # while you're there, look again this often
-DARK_MEAN = 10         # skip near-black frames (IR emitter still warming up)
-MAX_HEIGHT = 320       # Howdy's max_height: frames are scaled to this before matching
+LOOK_SECONDS = 3     # how long to look per check
+LEAD_SECONDS = 15    # check this long before KDE's auto-lock (model loading + LOOK_SECONDS)
+DARK_MEAN = 10       # skip near-black frames (IR emitter still warming up)
+MAX_HEIGHT = 320     # Howdy's max_height: frames are scaled to this before matching
 DLIB_DATA = "/usr/share/howdy/dlib-data/"
 
-howdy = configparser.ConfigParser()
-howdy.read("/etc/howdy/config.ini")
-CAMERA = howdy.get("video", "device_path")  # the IR camera Howdy uses
-CERTAINTY = howdy.getfloat("video", "certainty", fallback=3.5) / 10  # same scale Howdy uses
 
-encodings = np.array([d for m in json.load(open(f"/etc/howdy/models/{getpass.getuser()}.dat")) for d in m["data"]])
-detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor(DLIB_DATA + "shape_predictor_5_face_landmarks.dat")
-encoder = dlib.face_recognition_model_v1(DLIB_DATA + "dlib_face_recognition_resnet_model_v1.dat")
+def kde_lock_seconds():
+    """KDE's auto-lock timeout in seconds, or 0 if auto-lock is off."""
+    def read(key, default):
+        return subprocess.run(["kreadconfig6", "--file", "kscreenlockerrc", "--group", "Daemon",
+                               "--key", key, "--default", default], capture_output=True, text=True).stdout.strip()
+    if read("Autolock", "true") != "true":
+        return 0
+    return int(read("Timeout", "5")) * 60  # KDE stores minutes, default 5
 
 
 def look():
-    """Return "owner", "stranger" (a face that isn't you), or "nobody"."""
-    cam = cv2.VideoCapture(CAMERA, cv2.CAP_V4L2)
-    if not cam.isOpened():
-        return "nobody"  # camera busy or missing: lock to be safe
-    seen = "nobody"
+    """Return "owner", "stranger" (a face that isn't you), "nobody", or "busy" (camera unavailable)."""
+    import cv2
+    import dlib
+    import numpy as np
+
+    howdy = configparser.ConfigParser()
+    howdy.read("/etc/howdy/config.ini")
+    camera = howdy.get("video", "device_path")  # the IR camera Howdy uses
+    certainty = howdy.getfloat("video", "certainty", fallback=3.5) / 10  # same scale Howdy uses
+    encodings = np.array([d for m in json.load(open(f"/etc/howdy/models/{getpass.getuser()}.dat")) for d in m["data"]])
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(DLIB_DATA + "shape_predictor_5_face_landmarks.dat")
+    encoder = dlib.face_recognition_model_v1(DLIB_DATA + "dlib_face_recognition_resnet_model_v1.dat")
+
+    cam = cv2.VideoCapture(camera, cv2.CAP_V4L2)
+    seen = "busy"  # stays "busy" unless we actually get a frame (camera in use by a meeting app etc.)
     end = time.monotonic() + LOOK_SECONDS
     try:
-        while time.monotonic() < end:
+        while cam.isOpened() and time.monotonic() < end:
             ok, frame = cam.read()
-            if not ok or frame.mean() < DARK_MEAN:
+            if not ok:
+                continue
+            if seen == "busy":
+                seen = "nobody"
+            if frame.mean() < DARK_MEAN:
                 continue
             scale = MAX_HEIGHT / frame.shape[0]
             if scale < 1:
@@ -52,7 +65,7 @@ def look():
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
             for face in detector(gray, 1):
                 encoding = np.array(encoder.compute_face_descriptor(frame, predictor(frame, face), 1))
-                if np.linalg.norm(encodings - encoding, axis=1).min() < CERTAINTY:
+                if np.linalg.norm(encodings - encoding, axis=1).min() < certainty:
                     return "owner"
                 seen = "stranger"
     finally:
@@ -60,21 +73,29 @@ def look():
     return seen
 
 
-def guard():
-    # While you're present, block KDE's own idle-sleep too, so it can't sleep under you.
-    inhibitor = subprocess.Popen(["kde-inhibit", "--power", "sleep", "infinity"])
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # swayidle kills us when you touch the laptop
-    try:
-        while look() == "owner":
-            time.sleep(RECHECK_SECONDS)
-    finally:
-        inhibitor.terminate()
-    subprocess.run(["loginctl", "lock-session"])
+def report_activity():
+    # Same as touching the mouse: KDE restarts its auto-lock (and sleep) timers.
+    subprocess.run(["gdbus", "call", "--session", "-d", "org.freedesktop.ScreenSaver", "-o", "/ScreenSaver",
+                    "-m", "org.freedesktop.ScreenSaver.SimulateUserActivity"], capture_output=True)
+
+
+def watch():
+    lock = kde_lock_seconds()
+    if lock <= LEAD_SECONDS:
+        sys.exit("KDE auto-lock is off (or shorter than the check), nothing to guard")
+    me = os.path.realpath(sys.argv[0])
+    # swayidle only counts down while nothing blocks idle, so meetings/videos never trigger a check.
+    os.execvp("swayidle", ["swayidle", "timeout", str(lock - LEAD_SECONDS), f"'{me}' idle"])
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["check"]:
+    mode = sys.argv[1:]
+    if mode == ["check"]:
         result = look()
         print(result)
         sys.exit(0 if result == "owner" else 1)
-    guard()
+    if mode == ["idle"]:
+        if look() == "owner":
+            report_activity()
+    else:
+        watch()

@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 """Stop KDE's idle auto-lock while *you* (your Howdy face model) are in front of the IR camera.
 
-  presence-guard        watch: run swayidle so `idle` fires just before KDE's auto-lock
+  presence-guard        watch: run swayidle so `idle` fires just before KDE's auto-lock,
+                        and stop Howdy's lock-screen check (camera) as soon as the screen unlocks
   presence-guard idle   look once; if it's you or the camera is busy, report activity so KDE restarts its lock timer
   presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
 
@@ -101,13 +102,24 @@ def screen_locked():
     return screensaver("GetActive").startswith("(true")
 
 
+def stop_howdy():
+    # Howdy's lock-screen face check runs as you; KDE leaves it (and the camera) running after a password unlock.
+    # Root-owned checks (sudo) are untouched.
+    subprocess.run(["pkill", "-u", str(os.getuid()), "-f", r"^/usr/bin/python3 /usr/share/howdy/compare\.py "])
+
+
 def watch():
     lock = kde_lock_seconds()
-    if lock <= LEAD_SECONDS:
-        sys.exit("KDE auto-lock is off (or shorter than the check), nothing to guard")
-    me = os.path.realpath(sys.argv[0])
-    # swayidle only counts down while nothing blocks idle, so meetings/videos never trigger a check.
-    os.execvp("swayidle", ["swayidle", "timeout", str(lock - LEAD_SECONDS), f"'{me}' idle"])
+    if lock > LEAD_SECONDS:
+        me = os.path.realpath(sys.argv[0])
+        # swayidle only counts down while nothing blocks idle, so meetings/videos never trigger a check.
+        subprocess.Popen(["swayidle", "timeout", str(lock - LEAD_SECONDS), f"'{me}' idle"])
+    monitor = subprocess.Popen(["gdbus", "monitor", "--session", "--dest", "org.freedesktop.ScreenSaver"],
+                               stdout=subprocess.PIPE, text=True)
+    for line in monitor.stdout:
+        if "ActiveChanged (false" in line:  # screen just unlocked
+            stop_howdy()
+    sys.exit("lost connection to KDE")  # systemd restarts us (and swayidle with us)
 
 
 if __name__ == "__main__":

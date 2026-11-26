@@ -10,6 +10,8 @@ It only steps in at one moment: just before KDE's idle auto-lock fires. It check
 | someone else, or nobody | nothing: KDE locks on schedule |
 | any camera in use by another app (e.g. a meeting) | KDE's lock timer restarts, no face check: no lock while a camera is in use |
 
+It also stops Howdy's lock-screen face check the moment the screen unlocks, so the camera turns off when you unlock with your password instead.
+
 presence-guard never locks the screen itself, so turning it off leaves KDE exactly as it was.
 
 - **Timing comes from KDE:** the check runs 15 s before your auto-lock time (System Settings → Screen Locking). Change that setting, then restart the service: `systemctl --user restart presence-guard`.
@@ -38,6 +40,17 @@ presence-guard check   # one look: prints owner / stranger / nobody / busy
 ```
 
 Stop it with `systemctl --user disable --now presence-guard`.
+
+## Face and password unlock at the same time
+
+If Howdy is in `/etc/pam.d/kde`, the password field waits until the face check gives up. Put Howdy in `kde-fingerprint` instead. The KDE lock screen runs that stack in parallel with the password, so face or password unlocks, whichever finishes first:
+
+```bash
+sudo sed -i '/pam_howdy.so/d' /etc/pam.d/kde
+sudo sed -i '1i auth        sufficient    pam_howdy.so' /etc/pam.d/kde-fingerprint
+```
+
+Undo: run the same two commands with the file names swapped.
 
 ## Notes
 

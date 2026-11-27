@@ -1,13 +1,13 @@
 #!/usr/bin/python3
-"""Stop KDE's idle auto-lock while *you* (your Howdy face model) are in front of the IR camera.
+"""Stop KDE's idle auto-lock while *you* (your Howdy face model) are in front of the IR camera,
+and photograph whoever types a wrong password on the lock screen.
 
-  presence-guard        watch: run swayidle so `idle` fires just before KDE's auto-lock,
-                        and stop Howdy's lock-screen check (camera) as soon as the screen unlocks
+  presence-guard        watch: run swayidle so `idle` fires just before KDE's auto-lock, stop Howdy's
+                        lock-screen check when the screen unlocks, photograph wrong passwords, and
+                        announce new attempts with a notification at unlock
   presence-guard idle   look once; if it's you or the camera is busy, report activity so KDE restarts its lock timer
   presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
-  presence-guard photo  take the wrong-password photos now (what happens on each failed unlock)
-
-Each wrong password on the lock screen takes PHOTOS shots with the RGB camera; they open in Gwenview at your next unlock.
+  presence-guard photo  test the chosen camera: take the photos into the test folder (never an attempt)
 
 presence-guard never locks anything itself: if it isn't you, KDE simply locks on schedule.
 """
@@ -16,32 +16,29 @@ import getpass
 import glob
 import json
 import os
+import queue
+import shutil
 import subprocess
 import sys
 import threading
 import time
+import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from pg import store  # noqa: E402
+from pg.system import kde_lock_seconds  # noqa: E402
 
 LOOK_SECONDS = 3     # how long to look per check
 LEAD_SECONDS = 15    # check this long before KDE's auto-lock (model loading + LOOK_SECONDS)
 DARK_MEAN = 10       # skip near-black frames (IR emitter still warming up)
 MAX_HEIGHT = 320     # Howdy's max_height: frames are scaled to this before matching
 DLIB_DATA = "/usr/share/howdy/dlib-data/"
-RGB_CAMERA = "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:6:1.0-video-index0"  # the colour camera, not Howdy's IR one
 PHOTOS = 5           # photos per wrong password
 PHOTO_GAP = 12       # frames between photos (~0.4 s at 30 fps)
 WARMUP_FRAMES = 30   # let auto-exposure settle; the first frames are dark
-PHOTO_DIR = os.path.expanduser("~/Pictures/failed-unlocks")
-UNSEEN = f"{PHOTO_DIR}/unseen"  # shown and renamed at the next unlock
-
-
-def kde_lock_seconds():
-    """KDE's auto-lock timeout in seconds, or 0 if auto-lock is off."""
-    def read(key, default):
-        return subprocess.run(["kreadconfig6", "--file", "kscreenlockerrc", "--group", "Daemon",
-                               "--key", key, "--default", default], capture_output=True, text=True).stdout.strip()
-    if read("Autolock", "true") != "true":
-        return 0
-    return int(read("Timeout", "5")) * 60  # KDE stores minutes, default 5
+UNLOCK_GRACE = 2     # wait this long after an unlock so a just-typed wrong password reaches us first
+LOCK_FAILURE = "pam_unix(kde:auth): authentication failure"  # a wrong (or empty) password, not a failed face check
+ME = os.path.realpath(__file__)
 
 
 def camera_in_use():
@@ -118,51 +115,143 @@ def stop_howdy():
     subprocess.run(["pkill", "-u", str(os.getuid()), "-f", r"^/usr/bin/python3 /usr/share/howdy/compare\.py "])
 
 
-def take_photos():
+def take_photos(camera, folder):
+    """Save up to PHOTOS frames as 1.jpg … k.jpg; return (k, error or None)."""
     import cv2
-    cam = cv2.VideoCapture(RGB_CAMERA, cv2.CAP_V4L2)
+    cam = cv2.VideoCapture(camera, cv2.CAP_V4L2)
+    saved = 0
     try:
+        if not cam.isOpened():
+            return 0, f"{camera} unavailable"
         # Read every frame and keep every PHOTO_GAP-th: sleeping between reads would return stale buffered frames.
         for n in range(WARMUP_FRAMES + PHOTOS * PHOTO_GAP):
             ok, frame = cam.read()
             if ok and n >= WARMUP_FRAMES and (n - WARMUP_FRAMES) % PHOTO_GAP == 0:
-                os.makedirs(UNSEEN, exist_ok=True)  # every time: an unlock may have just moved it away
-                cv2.imwrite(f"{UNSEEN}/{time.strftime('%Y-%m-%d_%H-%M-%S')}-{(n - WARMUP_FRAMES) // PHOTO_GAP + 1}.jpg", frame)
+                path = os.path.join(folder, f"{saved + 1}.jpg")
+                if cv2.imwrite(path, frame):
+                    store._own(path)
+                    saved += 1
     finally:
         cam.release()
+    return saved, None if saved else f"no frames from {camera}"
 
 
-def watch_failed_unlocks():
-    # The lock screen runs as you, so its PAM failures land in your own journal (no root needed).
-    journal = subprocess.Popen(["journalctl", "-f", "-n0", "-o", "cat", f"_UID={os.getuid()}", "_COMM=kscreenlocker_g"],
-                               stdout=subprocess.PIPE, text=True)
+class Worker:
+    """The only code that creates or updates attempts. Events are handled one at a time, in order."""
+
+    def __init__(self, source):
+        self.source = source          # "lock" or "sddm"
+        self.events = queue.Queue()
+        self.burst = None             # {"first", "last", "path"} of the attempt still collecting failures
+        self.last_unlock = 0
+        threading.Thread(target=self.run, daemon=True).start()
+
+    def run(self):
+        while True:
+            kind, t = self.events.get()
+            try:
+                self.failure(t) if kind == "failure" else self.unlock(t)
+            except Exception:
+                traceback.print_exc()  # goes to the journal; keep handling later events
+
+    def failure(self, t):
+        settings = store.settings()
+        if not store.photos_enabled(settings):
+            return  # off, or no camera chosen yet
+        if store.burst_continues(self.burst, t) and self.bump(t):
+            return
+        partial = store.new_attempt(t)
+        count, error = take_photos(settings["camera"], partial)
+        meta = {"failures": 1, "first_failure": t, "last_failure": t, "photos": count, "error": error,
+                "source": self.source, "probably_you": store.probably_you(t, self.last_unlock)}
+        self.burst = {"first": t, "last": t, "path": store.finish_attempt(partial, meta)}
+
+    def bump(self, t):
+        """Add a failure to the open attempt; False if it has been deleted meanwhile."""
+        try:
+            meta = store.read_meta(self.burst["path"])
+            if meta is None:
+                return False
+            meta.update(failures=meta.get("failures", 1) + 1, last_failure=t)
+            store.write_meta(self.burst["path"], meta)
+        except OSError:
+            return False
+        self.burst["last"] = t
+        return True
+
+    def unlock(self, u):
+        self.burst, self.last_unlock = None, u
+        seen = store.last_seen()
+        new = [a for a in store.attempts() if store.is_new(a["name"], seen)]
+        for a in new:
+            last = a["meta"].get("last_failure")
+            if last is not None and not a["meta"].get("probably_you") and store.probably_you(last, u):
+                a["meta"]["probably_you"] = True
+                store.write_meta(a["path"], a["meta"])
+        store.prune()
+        if new:
+            store.mark_seen(new[0]["name"])
+            threading.Thread(target=notify, args=(new, seen), daemon=True).start()
+
+
+def notify(new, since):
+    """Notification with the newest photo; clicking it opens the app on just these attempts."""
+    newest = new[0]
+    icon = newest["photos"][0] if newest["photos"] else "camera-photo"
+    title = f"{len(new)} wrong-password attempt{'s' if len(new) > 1 else ''}"
+    when = time.strftime("%a %d %b, %H:%M", time.localtime(newest["time"]))
+    body = f"While you were away · latest {when}"
+    if all(a["meta"].get("probably_you") for a in new):
+        body += " · probably you"
+    clicked = subprocess.run(["notify-send", "-a", "Presence Guard", "-i", icon, "-A", "default=Open", title, body],
+                             capture_output=True, text=True).stdout.strip()
+    if clicked == "default":
+        # Its own unit, so restarting presence-guard doesn't close the window.
+        subprocess.run(["systemd-run", "--user", "--collect", "--quiet",
+                        "-E", "WAYLAND_DISPLAY", "-E", "DISPLAY", "-E", "XDG_RUNTIME_DIR",
+                        ME, "ui", f"--since={since or ''}"])
+
+
+def watch_journal(args, needle, worker):
+    """Queue a failure for each journal line containing `needle`; exit if the journal goes away."""
+    journal = subprocess.Popen(["journalctl", "-f", "-n0", "-o", "short-unix", *args], stdout=subprocess.PIPE, text=True)
     for line in journal.stdout:
-        if "pam_unix(kde:auth): authentication failure" in line:  # a wrong (or empty) password, not a failed face check
-            take_photos()
+        if needle in line:
+            try:
+                t = float(line.split(" ", 1)[0])
+            except ValueError:
+                t = time.time()
+            worker.events.put(("failure", t))
     os._exit(1)  # journal gone: let systemd restart the whole service
 
 
-def show_photos():
-    if os.path.isdir(UNSEEN) and os.listdir(UNSEEN):
-        folder = f"{PHOTO_DIR}/{time.strftime('%Y-%m-%d_%H-%M-%S')}"
-        os.rename(UNSEEN, folder)
-        subprocess.Popen(["gwenview", folder])
-
-
 def watch():
-    threading.Thread(target=watch_failed_unlocks, daemon=True).start()
+    worker = Worker("lock")
+    # The lock screen runs as you, so its PAM failures land in your own journal (no root needed).
+    threading.Thread(target=watch_journal, daemon=True,
+                     args=([f"_UID={os.getuid()}", "_COMM=kscreenlocker_g"], LOCK_FAILURE, worker)).start()
     lock = kde_lock_seconds()
     if lock > LEAD_SECONDS:
-        me = os.path.realpath(sys.argv[0])
         # swayidle only counts down while nothing blocks idle, so meetings/videos never trigger a check.
-        subprocess.Popen(["swayidle", "timeout", str(lock - LEAD_SECONDS), f"'{me}' idle"])
+        subprocess.Popen(["swayidle", "timeout", str(lock - LEAD_SECONDS), f"'{ME}' idle"])
     monitor = subprocess.Popen(["gdbus", "monitor", "--session", "--dest", "org.freedesktop.ScreenSaver"],
                                stdout=subprocess.PIPE, text=True)
     for line in monitor.stdout:
         if "ActiveChanged (false" in line:  # screen just unlocked
             stop_howdy()
-            show_photos()
+            threading.Timer(UNLOCK_GRACE, worker.events.put, (("unlock", time.time()),)).start()
     sys.exit("lost connection to KDE")  # systemd restarts us (and swayidle with us)
+
+
+def photo():
+    camera = store.settings()["camera"]
+    if not camera:
+        sys.exit("No camera chosen: open Presence Guard → Settings and pick your camera.")
+    folder = store.test_dir()
+    shutil.rmtree(folder, ignore_errors=True)
+    count, error = take_photos(camera, store.private_dir(folder))
+    print(f"{count} photo(s) in {folder}" + (f" ({error})" if error else ""))
+    sys.exit(0 if count else 1)
 
 
 if __name__ == "__main__":
@@ -172,8 +261,7 @@ if __name__ == "__main__":
         print(result)
         sys.exit(0 if result == "owner" else 1)
     if mode == ["photo"]:
-        take_photos()
-        sys.exit(print(UNSEEN))
+        photo()
     if mode == ["idle"]:
         # Idle time keeps counting on the lock screen; there's no auto-lock left to stop, so don't touch the camera.
         if not screen_locked() and look() in ("owner", "busy"):  # busy: camera in use (e.g. a meeting), so you're likely here

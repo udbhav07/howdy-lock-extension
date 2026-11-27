@@ -5,6 +5,9 @@
                         and stop Howdy's lock-screen check (camera) as soon as the screen unlocks
   presence-guard idle   look once; if it's you or the camera is busy, report activity so KDE restarts its lock timer
   presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
+  presence-guard photo  take the wrong-password photos now (what happens on each failed unlock)
+
+Each wrong password on the lock screen takes PHOTOS shots with the RGB camera; they open in Gwenview at your next unlock.
 
 presence-guard never locks anything itself: if it isn't you, KDE simply locks on schedule.
 """
@@ -15,6 +18,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 
 LOOK_SECONDS = 3     # how long to look per check
@@ -22,6 +26,12 @@ LEAD_SECONDS = 15    # check this long before KDE's auto-lock (model loading + L
 DARK_MEAN = 10       # skip near-black frames (IR emitter still warming up)
 MAX_HEIGHT = 320     # Howdy's max_height: frames are scaled to this before matching
 DLIB_DATA = "/usr/share/howdy/dlib-data/"
+RGB_CAMERA = "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:6:1.0-video-index0"  # the colour camera, not Howdy's IR one
+PHOTOS = 5           # photos per wrong password
+PHOTO_GAP = 12       # frames between photos (~0.4 s at 30 fps)
+WARMUP_FRAMES = 30   # let auto-exposure settle; the first frames are dark
+PHOTO_DIR = os.path.expanduser("~/Pictures/failed-unlocks")
+UNSEEN = f"{PHOTO_DIR}/unseen"  # shown and renamed at the next unlock
 
 
 def kde_lock_seconds():
@@ -108,7 +118,39 @@ def stop_howdy():
     subprocess.run(["pkill", "-u", str(os.getuid()), "-f", r"^/usr/bin/python3 /usr/share/howdy/compare\.py "])
 
 
+def take_photos():
+    import cv2
+    cam = cv2.VideoCapture(RGB_CAMERA, cv2.CAP_V4L2)
+    try:
+        # Read every frame and keep every PHOTO_GAP-th: sleeping between reads would return stale buffered frames.
+        for n in range(WARMUP_FRAMES + PHOTOS * PHOTO_GAP):
+            ok, frame = cam.read()
+            if ok and n >= WARMUP_FRAMES and (n - WARMUP_FRAMES) % PHOTO_GAP == 0:
+                os.makedirs(UNSEEN, exist_ok=True)  # every time: an unlock may have just moved it away
+                cv2.imwrite(f"{UNSEEN}/{time.strftime('%Y-%m-%d_%H-%M-%S')}-{(n - WARMUP_FRAMES) // PHOTO_GAP + 1}.jpg", frame)
+    finally:
+        cam.release()
+
+
+def watch_failed_unlocks():
+    # The lock screen runs as you, so its PAM failures land in your own journal (no root needed).
+    journal = subprocess.Popen(["journalctl", "-f", "-n0", "-o", "cat", f"_UID={os.getuid()}", "_COMM=kscreenlocker_g"],
+                               stdout=subprocess.PIPE, text=True)
+    for line in journal.stdout:
+        if "pam_unix(kde:auth): authentication failure" in line:  # a wrong (or empty) password, not a failed face check
+            take_photos()
+    os._exit(1)  # journal gone: let systemd restart the whole service
+
+
+def show_photos():
+    if os.path.isdir(UNSEEN) and os.listdir(UNSEEN):
+        folder = f"{PHOTO_DIR}/{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+        os.rename(UNSEEN, folder)
+        subprocess.Popen(["gwenview", folder])
+
+
 def watch():
+    threading.Thread(target=watch_failed_unlocks, daemon=True).start()
     lock = kde_lock_seconds()
     if lock > LEAD_SECONDS:
         me = os.path.realpath(sys.argv[0])
@@ -119,6 +161,7 @@ def watch():
     for line in monitor.stdout:
         if "ActiveChanged (false" in line:  # screen just unlocked
             stop_howdy()
+            show_photos()
     sys.exit("lost connection to KDE")  # systemd restarts us (and swayidle with us)
 
 
@@ -128,6 +171,9 @@ if __name__ == "__main__":
         result = look()
         print(result)
         sys.exit(0 if result == "owner" else 1)
+    if mode == ["photo"]:
+        take_photos()
+        sys.exit(print(UNSEEN))
     if mode == ["idle"]:
         # Idle time keeps counting on the lock screen; there's no auto-lock left to stop, so don't touch the camera.
         if not screen_locked() and look() in ("owner", "busy"):  # busy: camera in use (e.g. a meeting), so you're likely here

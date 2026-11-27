@@ -12,6 +12,8 @@ It only steps in at one moment: just before KDE's idle auto-lock fires. It check
 
 It also stops Howdy's lock-screen face check the moment the screen unlocks, so the camera turns off when you unlock with your password instead.
 
+Each wrong password on the lock screen takes 5 photos with the RGB camera. They open in Gwenview the next time you unlock, and stay in `~/Pictures/failed-unlocks/`.
+
 presence-guard never locks the screen itself, so turning it off leaves KDE exactly as it was.
 
 - **Timing comes from KDE:** the check runs 15 s before your auto-lock time (System Settings → Screen Locking). Change that setting, then restart the service: `systemctl --user restart presence-guard`.
@@ -37,6 +39,7 @@ systemctl --user enable --now presence-guard
 
 ```bash
 presence-guard check   # one look: prints owner / stranger / nobody / busy
+presence-guard photo   # take the wrong-password photos now (test the RGB camera)
 ```
 
 Stop it with `systemctl --user disable --now presence-guard`.
@@ -54,6 +57,9 @@ Undo: run the same two commands with the file names swapped.
 
 ## Notes
 
-- On the lock screen presence-guard never uses the camera. If the camera turns on there, it is Howdy (you pressed Enter or clicked unlock).
+- On the lock screen presence-guard uses only the RGB camera, and only after a wrong password. If the IR camera turns on there, it is Howdy (you pressed Enter or clicked unlock).
+- The RGB camera path is `RGB_CAMERA` at the top of `presence-guard` (`ls -l /dev/v4l/by-path/`, pick the one that isn't Howdy's `device_path`).
+- Pressing Enter with an empty password also counts as a wrong password, so you may see photos of yourself.
+- Only the KDE lock screen is covered, not the SDDM login screen (presence-guard isn't running before you log in).
 - If an app leaves a camera open by mistake (camera light stays on), the screen won't auto-lock until it's closed. Meta+L always locks.
 - Your face model stays in `/etc/howdy/models/` and is never copied into this repo.

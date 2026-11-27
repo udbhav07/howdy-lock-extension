@@ -505,23 +505,23 @@ Sequential implementation, no parallelization opportunity (one primary module, `
 ## Implementation Tasks
 Synthesized from this review's findings. Each task derives from a specific finding above. Run with Claude Code or Codex; checkbox as you ship.
 
-- [ ] **T1 (P1, human: ~2h / CC: ~10min)** — pg/store — store with atomic writes, lazy XDG paths, attempts, bursts, prune, delete, last_seen + unit tests
+- [x] **T1 (P1, human: ~2h / CC: ~10min)** — pg/store — store with atomic writes, lazy XDG paths, attempts, bursts, prune, delete, last_seen + unit tests
   - Surfaced by: design Data/Flow; R2-2, R2-3, R2-5, R2-7, R2-8; O6..O9
   - Files: pg/__init__.py, pg/store.py, test_store.py
   - Verify: `python3 -m unittest test_store`
-- [ ] **T2 (P1, human: ~2h / CC: ~10min)** — daemon — worker queue, capture via store, unlock announce with `notify-send -A default=Open`, `photo` test mode, `ui` mode
+- [x] **T2 (P1, human: ~2h / CC: ~10min)** — daemon — worker queue, capture via store, unlock announce with `notify-send -A default=Open`, `photo` test mode, `ui` mode
   - Surfaced by: design Flow; S4/D7; R2-6
   - Files: presence-guard, pg/system.py
   - Verify: `presence-guard photo`; `presence-guard check`; service restart status
-- [ ] **T3 (P1, human: ~3h / CC: ~15min)** — pg/ui — sidebar + 3 pages, watcher + rescan on focus, scaled thumbnails, camera picker with format labels
+- [x] **T3 (P1, human: ~3h / CC: ~15min)** — pg/ui — sidebar + 3 pages, watcher + rescan on focus, scaled thumbnails, camera picker with format labels
   - Surfaced by: design UI; S2/D5(D10); S3/D6; Performance P1
   - Files: pg/ui.py, pg/system.py
   - Verify: launch `presence-guard ui`, screenshot each page
-- [ ] **T4 (P1, human: ~2h / CC: ~10min)** — SDDM — `sddm-watch` mode + root unit using a root-owned copy
+- [x] **T4 (P1, human: ~2h / CC: ~10min)** — SDDM — `sddm-watch` mode + root unit using a root-owned copy
   - Surfaced by: TD2/D13
   - Files: presence-guard, presence-guard-sddm.service
   - Verify: `systemd-analyze verify`; live wrong password at SDDM after install
-- [ ] **T5 (P2, human: ~1h / CC: ~5min)** — install/docs — install.sh (deps, links, .desktop, units, camera reminder, no-camera warning), README Limits, TODOS.md
+- [x] **T5 (P2, human: ~1h / CC: ~5min)** — install/docs — install.sh (deps, links, .desktop, units, camera reminder, no-camera warning), README Limits, TODOS.md
   - Surfaced by: premise 4; O4/D9; O3/D11; D12
   - Files: install.sh, presence-guard.desktop, README.md, TODOS.md
   - Verify: `bash -n install.sh`; run install.sh

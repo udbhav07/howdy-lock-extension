@@ -1,0 +1,16 @@
+[Unit]
+Description=Photograph wrong passwords on the SDDM login screen for %i (presence-guard)
+After=systemd-journald.service
+
+[Service]
+# Root, because nobody is logged in at the login screen. Runs the root-owned copy installed by install.sh,
+# never the user-writable checkout. Writes only into %i's ~/.local/share/presence-guard (handed to %i).
+ExecStart=/usr/local/lib/presence-guard/presence-guard sddm-watch %i
+Restart=on-failure
+ProtectSystem=strict
+ReadWritePaths=/home
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical.target

@@ -8,6 +8,8 @@ and photograph whoever types a wrong password on the lock screen.
   presence-guard idle   look once; if it's you or the camera is busy, report activity so KDE restarts its lock timer
   presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
   presence-guard photo  test the chosen camera: take the photos into the test folder (never an attempt)
+  presence-guard sddm-watch OWNER   (root, from presence-guard-sddm@OWNER.service) photograph wrong
+                        passwords on the SDDM login screen into OWNER's attempts
   presence-guard ui     open the app (--since=NAME: only attempts newer than NAME, as the unlock notification does)
 
 presence-guard never locks anything itself: if it isn't you, KDE simply locks on schedule.
@@ -17,6 +19,7 @@ import getpass
 import glob
 import json
 import os
+import pwd
 import queue
 import shutil
 import subprocess
@@ -39,6 +42,7 @@ PHOTO_GAP = 12       # frames between photos (~0.4 s at 30 fps)
 WARMUP_FRAMES = 30   # let auto-exposure settle; the first frames are dark
 UNLOCK_GRACE = 2     # wait this long after an unlock so a just-typed wrong password reaches us first
 LOCK_FAILURE = "pam_unix(kde:auth): authentication failure"  # a wrong (or empty) password, not a failed face check
+SDDM_FAILURE = "pam_unix(sddm:auth): authentication failure"
 ME = os.path.realpath(__file__)
 
 
@@ -145,6 +149,10 @@ class Worker:
         self.events = queue.Queue()
         self.burst = None             # {"first", "last", "path"} of the attempt still collecting failures
         self.last_unlock = 0
+        try:
+            store.recover_partials()  # captures cut short by a restart still count
+        except OSError:
+            traceback.print_exc()
         threading.Thread(target=self.run, daemon=True).start()
 
     def run(self):
@@ -244,6 +252,25 @@ def watch():
     sys.exit("lost connection to KDE")  # systemd restarts us (and swayidle with us)
 
 
+def sddm_watch(owner):
+    """Run as root at boot: photograph wrong passwords on the SDDM login screen into `owner`'s attempts.
+
+    Nobody is logged in yet, so this can't run as the owner (no session, no camera access). It reads the
+    owner's settings, writes into the owner's folder and hands every file to the owner. The new attempts
+    are announced at the owner's next unlock.
+    """
+    pw = pwd.getpwnam(owner)
+    if os.geteuid() != 0 and os.geteuid() != pw.pw_uid:
+        sys.exit("sddm-watch must run as root (or as the owner, for testing)")
+    if os.geteuid() == 0:
+        os.environ["HOME"] = pw.pw_dir
+        for var in ("XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME"):
+            os.environ.pop(var, None)
+        store.OWNER = (pw.pw_uid, pw.pw_gid)
+    # PAM logs to the authpriv facility (10) whichever process runs the login, so we needn't know its name.
+    watch_journal(["SYSLOG_FACILITY=10"], SDDM_FAILURE, Worker("sddm"))
+
+
 def photo():
     camera = store.settings()["camera"]
     if not camera:
@@ -263,6 +290,8 @@ if __name__ == "__main__":
         sys.exit(0 if result == "owner" else 1)
     if mode == ["photo"]:
         photo()
+    if len(mode) == 2 and mode[0] == "sddm-watch":
+        sddm_watch(mode[1])
     if mode[:1] == ["ui"]:
         from pg import ui
         since = next((a.split("=", 1)[1] for a in mode[1:] if a.startswith("--since=")), None)

@@ -1,4 +1,5 @@
 """Presence Guard app: a sidebar menu of pages. Add a page by writing a QWidget class and listing it in PAGES."""
+import getpass
 import os
 import sys
 import time
@@ -236,7 +237,7 @@ class StatusPage(QWidget):
         problems = [a for a in store.attempts() if a["meta"].get("error")]
         values = {
             "Service": system.service_active(),
-            "Login-screen watcher": system.service_active("presence-guard-sddm", user=False),
+            "Login-screen watcher": system.service_active(f"presence-guard-sddm@{getpass.getuser()}", user=False),
             "KDE auto-lock": f"{lock // 60} min (face check runs 15 s before)" if lock else "off",
             "IR camera (Howdy)": system.howdy_device() or "not configured",
             "RGB camera": s["camera"] or "not chosen",

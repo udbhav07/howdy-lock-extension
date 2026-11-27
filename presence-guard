@@ -8,6 +8,7 @@ and photograph whoever types a wrong password on the lock screen.
   presence-guard idle   look once; if it's you or the camera is busy, report activity so KDE restarts its lock timer
   presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
   presence-guard photo  test the chosen camera: take the photos into the test folder (never an attempt)
+  presence-guard ui     open the app (--since=NAME: only attempts newer than NAME, as the unlock notification does)
 
 presence-guard never locks anything itself: if it isn't you, KDE simply locks on schedule.
 """
@@ -262,6 +263,10 @@ if __name__ == "__main__":
         sys.exit(0 if result == "owner" else 1)
     if mode == ["photo"]:
         photo()
+    if mode[:1] == ["ui"]:
+        from pg import ui
+        since = next((a.split("=", 1)[1] for a in mode[1:] if a.startswith("--since=")), None)
+        sys.exit(ui.main(since))
     if mode == ["idle"]:
         # Idle time keeps counting on the lock screen; there's no auto-lock left to stop, so don't touch the camera.
         if not screen_locked() and look() in ("owner", "busy"):  # busy: camera in use (e.g. a meeting), so you're likely here

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Presence Guard
+Comment=See who typed a wrong password on your lock screen
+Exec=presence-guard ui
+Icon=camera-photo
+Terminal=false
+Categories=Utility;Security;

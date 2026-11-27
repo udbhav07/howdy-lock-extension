@@ -132,6 +132,26 @@ def finish_attempt(partial, meta):
     return final
 
 
+def recover_partials(now=None, min_age=60):
+    """Finish attempts whose capture was cut short (service killed or restarted), so they aren't lost.
+
+    Only partials older than `min_age` seconds: a younger one may still be capturing in another process.
+    """
+    now = time.time() if now is None else now
+    try:
+        names = [n for n in os.listdir(attempts_dir()) if n.endswith(".partial")]
+    except OSError:
+        return
+    for name in names:
+        partial = os.path.join(attempts_dir(), name)
+        t = name_time(name[: -len(".partial")])
+        if t is None or now - t < min_age:
+            continue
+        count = len(photo_paths(partial))
+        finish_attempt(partial, {"failures": 1, "first_failure": t, "last_failure": t, "photos": count,
+                                 "error": "capture interrupted", "probably_you": False})
+
+
 def read_meta(folder):
     return _read_json(os.path.join(folder, "meta.json"))
 

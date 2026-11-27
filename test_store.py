@@ -95,6 +95,16 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(a["meta"], {})
         self.assertEqual(a["time"], T0)
 
+    def test_recover_interrupted_capture(self):
+        old = store.new_attempt(T0)
+        open(os.path.join(old, "1.jpg"), "wb").close()
+        young = store.new_attempt(T0 + 100)
+        store.recover_partials(now=T0 + 120)
+        [a] = store.attempts()
+        self.assertEqual(a["name"], "2027-01-15_08-00-00")
+        self.assertEqual((a["meta"]["photos"], a["meta"]["error"]), (1, "capture interrupted"))
+        self.assertTrue(os.path.isdir(young))  # may still be capturing: left alone
+
     def test_delete_attempt(self):
         path = self.make_attempt(T0, photos=1)
         store.delete_attempt(path)

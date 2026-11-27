@@ -1,10 +1,10 @@
 [Unit]
-Description=Stop KDE idle auto-lock while you are in front of the IR camera (presence-guard)
+Description=presence-guard: no auto-lock while you are at the camera, photos of wrong passwords on the lock screen
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
-# Checks the camera just before KDE's auto-lock fires; reads the timeout from KDE's settings.
+# Checks the IR camera just before KDE's auto-lock (timeout read from KDE), and watches the lock screen for wrong passwords.
 ExecStart=%h/.local/bin/presence-guard
 Restart=on-failure
 

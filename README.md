@@ -40,11 +40,11 @@ presence-guard ui      # open the app
 
 ## Face or password, whichever is first
 
-By default the password field waits for Howdy to give up. To run both at once, move Howdy to `kde-fingerprint`:
+`./install.sh` sets up the lock screen so face and password both work at once: whichever finishes first unlocks. It moves Howdy from `/etc/pam.d/kde` to `/etc/pam.d/kde-fingerprint`. To undo it:
 
 ```bash
-sudo sed -i '/pam_howdy.so/d' /etc/pam.d/kde
-sudo sed -i '1i auth        sufficient    pam_howdy.so' /etc/pam.d/kde-fingerprint
+sudo sed -i '/pam_howdy.so/d' /etc/pam.d/kde-fingerprint
+sudo sed -i '1i auth        sufficient    pam_howdy.so' /etc/pam.d/kde
 ```
 
 ## Limits

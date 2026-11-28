@@ -61,6 +61,15 @@ if ! $user_only; then
   sudo systemctl enable "presence-guard-sddm@$USER" >/dev/null 2>&1
   sudo systemctl restart "presence-guard-sddm@$USER"
   echo "login-screen watcher: $(systemctl is-active "presence-guard-sddm@$USER")"
+
+  # Face or password, whichever is first: the KDE lock screen runs kde-fingerprint in parallel with
+  # the password, while Howdy in kde makes the password field wait for the face check to give up.
+  if [ -f /etc/pam.d/kde-fingerprint ]; then
+    grep -q pam_howdy.so /etc/pam.d/kde-fingerprint ||
+      sudo sed -i '1i auth        sufficient    pam_howdy.so' /etc/pam.d/kde-fingerprint
+    ! grep -q pam_howdy.so /etc/pam.d/kde || sudo sed -i '/pam_howdy.so/d' /etc/pam.d/kde
+    echo "lock screen: face or password, whichever is first"
+  fi
 fi
 
 cameras=$(python3 -c 'from pg import system; print(len(system.list_cameras()))')

@@ -40,7 +40,7 @@ Photos stay off until you pick a camera in Settings. They are stored in `~/.loca
 
 - Howdy installed and working, with your face added (`sudo howdy add`)
 - KDE Plasma 6 on Wayland (tested on Fedora 44)
-- `swayidle`, OpenCV, PySide6 and libnotify (`sudo dnf install swayidle python3-opencv python3-pyside6 libnotify`)
+- `swayidle`, OpenCV, PySide6 and libnotify: `install.sh` installs any that are missing with `dnf`. On other distributions, install them yourself first.
 
 It reuses Howdy's settings: the IR camera (`device_path`), match strictness (`certainty`), and dlib models.
 
@@ -50,12 +50,12 @@ It reuses Howdy's settings: the IR camera (`device_path`), match strictness (`ce
 git clone https://github.com/udbhav07/howdy-lock-extension.git
 cd howdy-lock-extension
 ./install.sh              # asks for sudo to install the login-screen watcher
-./install.sh --user-only  # or: everything except the login-screen watcher, no sudo
+./install.sh --user-only  # or: everything except the login-screen watcher (sudo only to install missing packages)
 ```
 
 Then open **Presence Guard → Settings** and pick your camera.
 
-`install.sh` checks the dependencies, links `presence-guard` into `~/.local/bin`, adds the app to the menu, and enables the `presence-guard` user service. Without `--user-only` it also installs a root-owned copy in `/usr/local/lib/presence-guard` and enables `presence-guard-sddm@$USER` for the login screen. Run it again after `git pull`, so the root copy is updated too.
+`install.sh` installs missing packages, links `presence-guard` into `~/.local/bin`, adds the app to the menu, and enables the `presence-guard` user service. Without `--user-only` it also installs a root-owned copy in `/usr/local/lib/presence-guard` and enables `presence-guard-sddm@$USER` for the login screen. Run it again after `git pull`, so the root copy is updated too.
 
 ## Usage
 

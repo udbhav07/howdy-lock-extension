@@ -1,25 +1,43 @@
 #!/usr/bin/env bash
 # Install or update presence-guard for the current user. Safe to run again after `git pull`.
 #   ./install.sh               everything, including the SDDM login-screen watcher (asks for sudo)
-#   ./install.sh --user-only   skip the login-screen watcher (no sudo)
+#   ./install.sh --user-only   skip the login-screen watcher (sudo only if packages are missing)
+# Missing packages are installed with dnf (Fedora). Howdy itself must already be installed.
 set -euo pipefail
 cd "$(dirname "$(realpath "$0")")"
 repo=$PWD
 user_only=false
 [ "${1:-}" = "--user-only" ] && user_only=true
 
-missing=()
-for cmd in python3 swayidle gdbus journalctl notify-send kreadconfig6 systemd-run; do
-  command -v "$cmd" >/dev/null || missing+=("$cmd")
-done
-for mod in cv2 dlib numpy PySide6; do
-  python3 -c "import $mod" 2>/dev/null || missing+=("python3 module $mod")
-done
-[ -r /etc/howdy/config.ini ] || missing+=("Howdy (/etc/howdy/config.ini)")
-if [ ${#missing[@]} -gt 0 ]; then
-  echo "Missing: ${missing[*]}" >&2
-  echo "On Fedora: sudo dnf install swayidle python3-opencv python3-pyside6 libnotify (dlib comes with Howdy)" >&2
+if [ ! -r /etc/howdy/config.ini ]; then
+  echo "Howdy is not installed. Install it and add your face first (sudo howdy add):" >&2
+  echo "  https://github.com/boltgolt/howdy#installation" >&2
   exit 1
+fi
+
+# Commands and Python modules we need, each with the Fedora package that provides it.
+declare -A cmd_pkg=([python3]=python3 [swayidle]=swayidle [gdbus]=glib2 [journalctl]=systemd
+  [notify-send]=libnotify [kreadconfig6]=kf6-kconfig [systemd-run]=systemd)
+declare -A mod_pkg=([cv2]=python3-opencv [dlib]=python3-dlib [numpy]=python3-numpy [PySide6]=python3-pyside6)
+missing() {
+  local c m
+  for c in "${!cmd_pkg[@]}"; do command -v "$c" >/dev/null || echo "${cmd_pkg[$c]}"; done
+  for m in "${!mod_pkg[@]}"; do python3 -c "import $m" 2>/dev/null || echo "${mod_pkg[$m]}"; done
+}
+pkgs=$(missing | sort -u | tr '\n' ' ')
+if [ -n "$pkgs" ]; then
+  if ! command -v dnf >/dev/null; then
+    echo "Missing packages: $pkgs(install them with your package manager, then run this again)" >&2
+    exit 1
+  fi
+  echo "Installing missing packages: $pkgs"
+  # shellcheck disable=SC2086
+  sudo dnf install -y $pkgs
+  pkgs=$(missing | sort -u | tr '\n' ' ')
+  if [ -n "$pkgs" ]; then
+    echo "Still missing after install: $pkgs" >&2
+    exit 1
+  fi
 fi
 
 mkdir -p ~/.local/bin ~/.local/share/applications

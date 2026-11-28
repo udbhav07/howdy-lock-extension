@@ -52,15 +52,10 @@ presence-guard ui      # open the app
 ## Uninstall
 
 ```bash
-systemctl --user disable --now presence-guard
-sudo systemctl disable --now "presence-guard-sddm@$USER"
-sudo rm -r /usr/local/lib/presence-guard /etc/systemd/system/presence-guard-sddm@.service
-rm ~/.local/bin/presence-guard ~/.local/share/applications/presence-guard.desktop
-rm -r ~/.local/share/presence-guard ~/.config/presence-guard ~/.local/state/presence-guard  # photos and settings
-
-# put Howdy back in front of the password (undo face-or-password)
-sudo sed -i '/pam_howdy.so/d' /etc/pam.d/kde-fingerprint
-sudo sed -i '1i auth        sufficient    pam_howdy.so' /etc/pam.d/kde
+./uninstall.sh           # removes everything; asks before deleting your photos and settings
+./uninstall.sh --purge   # same, deletes photos and settings without asking
 ```
+
+It also puts Howdy back in front of the password, undoing face-or-password.
 
 Your Howdy face model stays in `/etc/howdy/models/` and is never copied into this repo.

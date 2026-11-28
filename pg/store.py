@@ -14,7 +14,8 @@ import os
 import shutil
 import time
 
-DEFAULTS = {"wrong_password_photos": True, "camera": None, "keep_days": 30}
+DEFAULTS = {"wrong_password_photos": True, "camera": None, "keep_days": 30,
+            "no_autolock": True, "no_autolock_for": "owner"}  # "owner" or "anyone"
 BURST_GAP = 10        # a failure this soon after the last one joins the same attempt
 BURST_MAX = 120       # ...unless the attempt started this long ago
 TYPO_WINDOW = 20      # failures this close before your unlock are labeled "probably you"
@@ -98,6 +99,17 @@ def save_settings(values):
 
 def photos_enabled(s):
     return bool(s.get("wrong_password_photos") and s.get("camera"))
+
+
+def stop_autolock(seen, s):
+    """Should KDE's auto-lock be held off, given what the IR camera saw?
+
+    "busy" (a camera already in use, e.g. a meeting) counts as present in both modes.
+    """
+    if not s.get("no_autolock"):
+        return False
+    present = ("owner", "busy") if s.get("no_autolock_for") != "anyone" else ("owner", "stranger", "busy")
+    return seen in present
 
 
 # --- attempts -----------------------------------------------------------------------

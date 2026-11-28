@@ -2,7 +2,7 @@
 
 `presence-guard` adds two things to KDE Plasma with [Howdy](https://github.com/boltgolt/howdy):
 
-1. **No auto-lock while you're at the screen.** Just before KDE's idle lock fires, it checks the IR camera. If it sees you, the lock timer restarts. If it sees someone else or nobody, KDE locks as usual.
+1. **No auto-lock while you're at the screen.** Just before KDE's idle lock fires, it checks the IR camera. If it sees you, the lock timer restarts. If it sees someone else or nobody, KDE locks as usual. In Settings you can turn this off, or keep the screen unlocked for anyone in front of the camera.
 2. **Photos of wrong passwords.** A wrong password on the lock or login screen takes 5 photos. When you unlock, a notification shows them.
 
 ## Install
@@ -26,7 +26,7 @@ Open **Presence Guard** from the app menu, or run `presence-guard ui`.
 
 - **Wrong passwords:** every attempt with its time and photos. Delete removes one. An attempt made within 20 s of your own unlock is tagged "Probably you".
 - **Status:** shows which services are running and lists the cameras, with a "Check camera now" button.
-- **Settings:** camera, photos on/off, how many days to keep attempts (default 30, 0 = forever).
+- **Settings:** no auto-lock on/off, and whether it holds for you only or anyone present; camera, photos on/off, how many days to keep attempts (default 30, 0 = forever).
 
 Photos are stored in `~/.local/share/presence-guard/` and only your account can read them.
 

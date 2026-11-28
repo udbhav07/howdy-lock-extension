@@ -48,6 +48,16 @@ class StoreTest(unittest.TestCase):
         self.assertTrue(store.photos_enabled({**s, "camera": "/dev/video0"}))
         self.assertFalse(store.photos_enabled({**s, "camera": "/dev/video0", "wrong_password_photos": False}))
 
+    def test_stop_autolock_modes(self):
+        owner = {**store.DEFAULTS}
+        anyone = {**owner, "no_autolock_for": "anyone"}
+        off = {**anyone, "no_autolock": False}
+        for seen, want_owner, want_anyone in (("owner", True, True), ("stranger", False, True),
+                                              ("busy", True, True), ("nobody", False, False)):
+            self.assertEqual(store.stop_autolock(seen, owner), want_owner, seen)
+            self.assertEqual(store.stop_autolock(seen, anyone), want_anyone, seen)
+            self.assertFalse(store.stop_autolock(seen, off), seen)
+
     def test_settings_round_trip_and_corrupt_file_gives_defaults(self):
         store.save_settings({"camera": "/dev/video0", "keep_days": 7})
         self.assertEqual(store.settings()["camera"], "/dev/video0")

@@ -164,7 +164,14 @@ class SettingsPage(QWidget):
         storage.setWordWrap(True)
         storage.setEnabled(False)
 
+        self.no_autolock = QCheckBox("No auto-lock while someone is in front of the IR camera")
+        self.autolock_for = QComboBox()
+        self.autolock_for.addItem("Only when you (the owner) are present", "owner")
+        self.autolock_for.addItem("When anyone is present", "anyone")
+
         form = QFormLayout()
+        form.addRow(self.no_autolock)
+        form.addRow("Stay unlocked", self.autolock_for)
         form.addRow(self.enabled)
         form.addRow("Camera", self.camera)
         form.addRow("", self.camera_note)
@@ -178,10 +185,18 @@ class SettingsPage(QWidget):
         self.enabled.toggled.connect(lambda on: store.save_settings({"wrong_password_photos": on}))
         self.camera.currentIndexChanged.connect(self.camera_changed)
         self.keep.valueChanged.connect(lambda days: store.save_settings({"keep_days": days}))
+        self.no_autolock.toggled.connect(self.no_autolock_changed)
+        self.autolock_for.currentIndexChanged.connect(
+            lambda: store.save_settings({"no_autolock_for": self.autolock_for.currentData()}))
+
+    def no_autolock_changed(self, on):
+        store.save_settings({"no_autolock": on})
+        self.autolock_for.setEnabled(on)
 
     def refresh(self):
         s = store.settings()
-        for widget in (self.enabled, self.camera, self.keep):
+        widgets = (self.enabled, self.camera, self.keep, self.no_autolock, self.autolock_for)
+        for widget in widgets:
             widget.blockSignals(True)
         self.camera.clear()
         self.camera.addItem("Choose a camera…", None)
@@ -193,7 +208,10 @@ class SettingsPage(QWidget):
         self.enabled.setChecked(bool(s["wrong_password_photos"]))
         self.enabled.setEnabled(bool(s["camera"]))  # photos stay off until a camera is chosen
         self.keep.setValue(int(s["keep_days"] or 0))
-        for widget in (self.enabled, self.camera, self.keep):
+        self.no_autolock.setChecked(bool(s["no_autolock"]))
+        self.autolock_for.setCurrentIndex(max(0, self.autolock_for.findData(s["no_autolock_for"])))
+        self.autolock_for.setEnabled(bool(s["no_autolock"]))
+        for widget in widgets:
             widget.blockSignals(False)
 
     def camera_changed(self):

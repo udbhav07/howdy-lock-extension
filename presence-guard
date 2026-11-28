@@ -5,7 +5,8 @@ and photograph whoever types a wrong password on the lock screen.
   presence-guard        watch: run swayidle so `idle` fires just before KDE's auto-lock, stop Howdy's
                         lock-screen check when the screen unlocks, photograph wrong passwords, and
                         announce new attempts with a notification at unlock
-  presence-guard idle   look once; if it's you or the camera is busy, report activity so KDE restarts its lock timer
+  presence-guard idle   look once; if it's you (or, per Settings, anyone) or the camera is busy, report
+                        activity so KDE restarts its lock timer. Does nothing when "No auto-lock" is off.
   presence-guard check  look once, print owner/stranger/nobody/busy, exit 0 only for owner
   presence-guard photo  test the chosen camera: take the photos into the test folder (never an attempt)
   presence-guard sddm-watch OWNER   (root, from presence-guard-sddm@OWNER.service) photograph wrong
@@ -298,7 +299,8 @@ if __name__ == "__main__":
         sys.exit(ui.main(since))
     if mode == ["idle"]:
         # Idle time keeps counting on the lock screen; there's no auto-lock left to stop, so don't touch the camera.
-        if not screen_locked() and look() in ("owner", "busy"):  # busy: camera in use (e.g. a meeting), so you're likely here
+        s = store.settings()
+        if s["no_autolock"] and not screen_locked() and store.stop_autolock(look(), s):
             report_activity()
     else:
         watch()
